@@ -1,0 +1,20 @@
+name: pmd_analysis
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - jupyterlab
+  - numpy
+  - pandas
+  - polars  # Faster alternative to pandas
+  - pyarrow  # Efficient in-memory data handling
+  - fastparquet  # Support for Parquet format
+  - matplotlib
+  - seaborn
+  - scikit-learn
+  - scipy
+  - pytorch
+  - torchvision
+  - torchaudio
+  - pip

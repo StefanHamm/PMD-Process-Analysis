@@ -4,7 +4,12 @@ __pycache__/
 *$py.class
 
 # C extensions
+
+
 *.so
+
+# ignore dataset folder
+data/
 
 # Distribution / packaging
 .Python
