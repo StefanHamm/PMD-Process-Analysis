@@ -18,3 +18,5 @@ dependencies:
   - torchvision
   - torchaudio
   - pip
+  - plotly
+  - kaleido
