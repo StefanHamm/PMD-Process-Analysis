@@ -88,8 +88,8 @@ def cutoff_start_end_y(df:pd.DataFrame, cutoff=0.1) -> pd.DataFrame:
         df_mode_4 = datasetframe[datasetframe["Mode"] == 4]
         min_y = df_mode_4.groupby("Layer")["Y"].min().min()
         max_y = df_mode_4.groupby("Layer")["Y"].max().max()
-        print(min_y)
-        print(max_y)
+        # print(min_y)
+        # print(max_y)
 
         interrange = max_y - min_y
         return interrange,min_y,max_y
@@ -105,7 +105,7 @@ import numpy as np
 def filter_mode_5_crossection_points(df: pd.DataFrame, threshold: float) -> pd.DataFrame:
     """This function takes a df of welding points and removes data points from layers 
     that are too close to points in any of the previous layers. This is specifically for 
-    points where Mode is 5, ensuring we only keep new material added in a given welding pass.
+    points where Mode is 5, ensuring we only keep new material added in a given welding pass as datapoints.
 
     Args:
         df (pd.DataFrame): Weld data DataFrame, must contain 'X', 'Y', 'Z-Height', 'Mode', and 'Layer' columns.
@@ -210,8 +210,16 @@ def plot3D_plotly(df,mode):
     fig.show()
 
 
-def plot2D_crossection(df, mode):
-    """Plot a 2D scatter plot (X vs Z-Height) for layers 0 to 8 for a given mode using Plotly."""
+def plot2D_crossection(df, mode,colxaxis = "X",colyaxis = "Z-Height"):
+    """Creates 2 plot for a specified mode and variable for x and y axis for a given mode.
+
+    Args:
+        df (pd.df): Df with weld data
+        mode (int): Mode which to display e.g. 2,4,5 
+        colxaxis (str, optional): Column to put on the x axis of the plot. Defaults to "X".
+        colyaxis (str, optional): Column to put on the y axis of the plot. Defaults to "Z-Height".
+    """
+        
     
     unique_layers = df[df["Mode"] == mode]["Layer"].unique()
     # Filter dataframe for the mode and layers 0 to 8
@@ -220,8 +228,8 @@ def plot2D_crossection(df, mode):
 
     fig = px.scatter(
         filtered_df,
-        x='X',
-        y='Z-Height',
+        x=colxaxis,
+        y=colyaxis,
         color='Layer',
         title=f"Scatter Plot of Layers 0–{max(unique_layers)} (Mode {mode})",
         labels={"X": "X", "Z-Height": "Z-Height"},
@@ -237,4 +245,121 @@ def plot2D_crossection(df, mode):
     )
     fig.show()
     
+
+from tqdm import tqdm
+from sklearn.neighbors import NearestNeighbors
+
+def sync_measurement_with_weld(df:pd.DataFrame,meanscaleAxis = True, axisToScale = "X", knn = 3,passesPerMeasurement = 1):
+    """This fucntion synchronizes the measurement data of Mode = 4 with the weld data of Mode 2. Other Modes get lost!
+
+    Args:
+        df (pd.DataFrame): The dataframe with weld data
+        meanscaleAxis (bool, optional): The tool head moves along one axis. This tells it to mean scale it for Mode 2 and Mode 4 to be overlay it better. Defaults to True.
+        axisToScale (str, optional): Tells which axis to mean scale. Defaults to "X".
+        knn (int,optional): Number of neigbours used to map Z-Height value. Defaults to 3
+        passesPerMeasurement (int,optional): How many weld passes were performed till measurement? This divides the deposited layerheight by this value.
+    """
+    weldAxis = "X"
+    if axisToScale == "X":
+        weldAxis = "Y"
+        
+    df_copy = df.copy()
+    
+    unique_layers = unique_layers = df[df["Mode"] == 4]["Layer"].unique()
+    
+    if meanscaleAxis:
+        for layer in unique_layers:
+            # normalize X and Y coordinates by standard scaling it with a mean of 0 and a standard deviation of 1
+            df_copy.loc[(df_copy["Layer"] == layer)&(df_copy["Mode"]==4), axisToScale] = (df_copy.loc[(df_copy["Layer"] == layer)&(df_copy["Mode"]==4), axisToScale] - df_copy.loc[(df_copy["Layer"] == layer)&(df_copy["Mode"]==4), axisToScale].mean()) / df_copy.loc[(df_copy["Layer"] == layer)&(df_copy["Mode"]==4), axisToScale].std()
+            #df_cleaned_copy.loc[(df_cleaned_copy["Layer"] == layer)&(df_cleaned_copy["Mode"]==4), "Y"] = (df_cleaned_copy.loc[(df_cleaned_copy["Layer"] == layer)&(df_cleaned_copy["Mode"]==4), "Y"] - df_cleaned_copy.loc[(df_cleaned_copy["Layer"] == 0)&(df_cleaned_copy["Mode"]==4), "Y"].mean()) / df_cleaned_copy.loc[(df_cleaned_copy["Layer"] == 0)&(df_cleaned_copy["Mode"]==4), "Y"].std()
+            
+            df_copy.loc[(df_copy["Layer"] == layer)&(df_copy["Mode"]==2), axisToScale] = (df_copy.loc[(df_copy["Layer"] == layer)&(df_copy["Mode"]==2), axisToScale] - df_copy.loc[(df_copy["Layer"] == layer)&(df_copy["Mode"]==2), axisToScale].mean()) / df_copy.loc[(df_copy["Layer"] == layer)&(df_copy["Mode"]==2), axisToScale].std()
+    
+    df_copy['prev_height'] = np.nan
+    df_copy['next_height'] = np.nan
+    df_copy['dep_height'] = np.nan
+    df_copy['prev_X_mean'] = np.nan  
+    df_copy['prev_Y_mean'] = np.nan  
+    df_copy['next_X_mean'] = np.nan  
+    df_copy['next_Y_mean'] = np.nan
+    
+    unique_layers.sort()
+    
+    
+    for layer in unique_layers[1:]:
+        # Get current welding layer (Mode 2)
+        layer_mode_2 = df_copy[(df_copy["Mode"] == 2) & (df_copy["Layer"] == layer)]
+        
+        # Get measurement layers (Mode 4)
+        prev_layer_mode_4 = df_copy[(df_copy["Mode"] == 4) & (df_copy["Layer"] == layer - 1)]
+        next_layer_mode_4 = df_copy[(df_copy["Mode"] == 4) & (df_copy["Layer"] == layer)]
+
+        # Create KNN models
+        prev_knn, next_knn = NearestNeighbors(n_neighbors=knn), NearestNeighbors(n_neighbors=knn)
+        if prev_layer_mode_4.empty or next_layer_mode_4.empty:
+            print(f"No previous or next layer data for Layer {layer}. Skipping height calculation.")
+        
+        
+        if not prev_layer_mode_4.empty:
+            prev_knn.fit(prev_layer_mode_4[["X", "Y"]].values)
+        if not next_layer_mode_4.empty:
+            next_knn.fit(next_layer_mode_4[["X", "Y"]].values)
+
+        for index in tqdm(layer_mode_2.index, desc=f"Processing Layer {layer}", unit="point"):
+            x, y = df_copy.loc[index, ["X", "Y"]].values
+            
+            # Get previous height
+            if not prev_layer_mode_4.empty:
+                _, prev_indices = prev_knn.kneighbors([[x, y]])
+                prev_neighbors = prev_layer_mode_4.iloc[prev_indices[0]]
+                prev_height = prev_neighbors["Z-Height"].mean()
+                prev_X_mean = prev_neighbors["X"].mean()  # Mean X of neighbors
+                prev_Y_mean = prev_neighbors["Y"].mean()  # Mean Y of neighbors
+            else:
+                print(f"No previous layer data for Layer {layer - 1}. Skipping height calculation for index {index}.")
+                prev_height = np.nan
+                
+            # Get next height
+            if not next_layer_mode_4.empty:
+                _, next_indices = next_knn.kneighbors([[x, y]])
+                
+                next_neighbors = next_layer_mode_4.iloc[next_indices[0]]
+                next_height = next_neighbors["Z-Height"].mean()
+                if next_height is pd.NA:
+                    print(next_neighbors["Z-Height"])
+                next_X_mean = next_neighbors["X"].mean()  # Mean X of neighbors
+                next_Y_mean = next_neighbors["Y"].mean()  # Mean Y of neighbors
+            else:
+                next_height = np.nan
+
+            # Update dataframe
+            df_copy.loc[index, [
+                'prev_height', 'next_height',
+                'prev_X_mean', 'prev_Y_mean',
+                'next_X_mean', 'next_Y_mean'
+            ]] = [
+                prev_height, next_height,
+                prev_X_mean, prev_Y_mean,
+                next_X_mean, next_Y_mean
+            ]
+            
+            # Calculate deposited height
+            if pd.notnull(prev_height) and pd.notnull(next_height):
+                df_copy.loc[index, 'dep_height'] = (next_height - prev_height)/passesPerMeasurement
+            else:
+                print(f"Missing height data for index {index}. Setting deposited height to NaN.")
+                df_copy.loc[index, 'dep_height'] = np.nan
+    
+    return df_copy[df_copy["Mode"]==2].copy()
+
+
+def add_pass_indicator(df:pd.DataFrame,columnName = "Pass"):
+    """Adds a column for the weld mode on which pass of the current layer it is. E.g. if layer 1 gets two weld passes there is a new column with value 1 and 2. For others its default 1.
+
+    Args:
+        df (pd.DataFrame): Welding dataframe
+        columnName (str, optional): How the indicator column should be named. Defaults to "Pass".
+    """
+    
+    #TODO 
     
