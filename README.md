@@ -6,4 +6,18 @@ To install the required packages, run the following command:
 
 ```bash
 conda env create -f conda_env.yaml
+
 ```
+
+## TODO list what needs to be done
+
+
+### Dataset 1
+- [x] Load the dataset
+- [x] Sync the welddata with layerdata
+- [x] Compare lag between change in wirefeed and change in layer height
+- [ ] Create a model to predict the layer height and width based on the process parameters
+- [ ] Evaluate the model performance
+- [ ] Visualize the results
+
+### Dataset 2
