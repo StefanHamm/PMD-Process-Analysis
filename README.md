@@ -22,6 +22,7 @@ conda env create -f conda_env.yaml
 
 ### Dataset 2
 - [ ] subtract layer 0 following layers (not sure if needed since we calculate the the deposition hight)
-- [ ] Make syncing proces faster by using multiple processing
-- [ ] Add a pass indicator to the passes.
+- [x] fix layer 0 outliers if deviates more than 1mm from mean set to layer mean
+- [x] Make syncing proces faster by using multiple processing
+- [x] Add a pass indicator to the passes.
 - [ ] combine the collected data (individual csv) of Dataset 2 into one dataset
