@@ -563,7 +563,7 @@ def sync_measurement_with_weld_mp(df: pd.DataFrame, meanscaleAxis=True, axisToSc
 from tqdm import tqdm
 from sklearn.neighbors import NearestNeighbors
 
-def sync_measurement_with_weld(df:pd.DataFrame,meanscaleAxis = True, axisToScale = "X", knn = 3,passesPerMeasurement = 1):
+def sync_measurement_with_weld(df:pd.DataFrame,meanscaleAxis = True, axisToScale = "X", knn = 3):
     """This fucntion synchronizes the measurement data of Mode = 4 with the weld data of Mode 2. Other Modes get lost!
 
     Args:
@@ -571,7 +571,7 @@ def sync_measurement_with_weld(df:pd.DataFrame,meanscaleAxis = True, axisToScale
         meanscaleAxis (bool, optional): The tool head moves along one axis. This tells it to mean scale it for Mode 2 and Mode 4 to be overlay it better. Defaults to True.
         axisToScale (str, optional): Tells which axis to mean scale. Defaults to "X".
         knn (int,optional): Number of neigbours used to map Z-Height value. Defaults to 3
-        passesPerMeasurement (int,optional): How many weld passes were performed till measurement? This divides the deposited layerheight by this value.
+        
     """
     weldAxis = "X"
     if axisToScale == "X":
@@ -658,6 +658,8 @@ def sync_measurement_with_weld(df:pd.DataFrame,meanscaleAxis = True, axisToScale
             ]
             
             # Calculate deposited height
+            passesPerMeasurement = df_copy.loc[df_copy['Layer'] == layer, 'Pass'].max()
+
             if pd.notnull(prev_height) and pd.notnull(next_height):
                 df_copy.loc[index, 'dep_height'] = (next_height - prev_height)/passesPerMeasurement
             else:
@@ -667,54 +669,62 @@ def sync_measurement_with_weld(df:pd.DataFrame,meanscaleAxis = True, axisToScale
     return df_copy[df_copy["Mode"]==2].copy()
 
 from sklearn.cluster import KMeans
-def add_pass_indicator(df: pd.DataFrame, columnName="Pass", numberOfPasses=2):
-    """
-    Adds a column indicating the pass number (1 or 2) within each layer,
-    based on clustering of Z heights (assuming 2 passes per layer).
-    Args:
-        df (pd.DataFrame): DataFrame with columns 'Layer' and Z-height (e.g. 'MD/LSZ')
-        columnName (str, optional): Name of the new column. Defaults to "Pass".
-        numberOfPasses (int,optional): How many passes per layer are done
-    """
+
+from scipy.signal import find_peaks
+import numpy as np
+import pandas as pd
+from sklearn.cluster import KMeans
+from scipy.signal import find_peaks
+from scipy.stats import gaussian_kde
+import matplotlib.pyplot as plt
+def estimate_passes(z_values, max_passes=5, min_peak_prominence=0.05, plot=False):
+    kde = gaussian_kde(z_values)
+    z_linspace = np.linspace(z_values.min(), z_values.max(), 1000)
+    kde_values = kde(z_linspace)
+
+    # Invert KDE to find valleys instead of peaks
+    inverted = np.max(kde_values) - kde_values
+    valleys, _ = find_peaks(inverted, prominence=min_peak_prominence * np.max(inverted))
+    
+    # Number of passes = number of valleys + 1 (valleys split passes)
+    n_passes = min(len(valleys) + 1, max_passes)
+    n_passes = max(n_passes, 1)
+
+    if plot:
+        import matplotlib.pyplot as plt
+        plt.plot(z_linspace, kde_values, label='KDE')
+        plt.plot(z_linspace[valleys], kde_values[valleys], "x", label='Valleys')
+        plt.title(f"Estimated passes: {n_passes}")
+        plt.legend()
+        plt.show()
+
+    return n_passes
+
+def add_pass_indicator(df: pd.DataFrame, columnName="Pass", max_passes=5):
     dfcopy = df.copy()
     dfcopy[columnName] = 1  # Default pass
-   
+    
     for layer in dfcopy['Layer'].unique():
         mask = dfcopy['Layer'] == layer
-        z_values = dfcopy.loc[mask, 'Z'].values.reshape(-1, 1)
-       
-        if len(z_values) <= 1:
-            continue  # Not enough data to cluster
-       
-        # Only apply clustering for Mode == 2 (assuming Mode column exists)
-
         mode_mask = dfcopy['Mode'] == 2
         layer_mode_mask = mask & mode_mask
         
-        if not layer_mode_mask.any():
-            continue  # No Mode == 2 data in this layer
-        
-        z_values_mode2 = dfcopy.loc[layer_mode_mask, 'Z'].values.reshape(-1, 1)
-        
+        z_values_mode2 = dfcopy.loc[layer_mode_mask, 'Z'].values
         if len(z_values_mode2) <= 1:
-            continue  # Not enough Mode == 2 data to cluster
+            continue  # Not enough data to cluster
         
-        # Cluster into two passes based on Z height for Mode == 2 data
-        kmeans = KMeans(n_clusters=2, n_init='auto', random_state=42)
-        labels = kmeans.fit_predict(z_values_mode2)
+        n_passes = estimate_passes(z_values_mode2, max_passes=max_passes)
+        
+        # Cluster into n_passes passes based on Z height
+        kmeans = KMeans(n_clusters=n_passes, n_init='auto', random_state=42)
+        labels = kmeans.fit_predict(z_values_mode2.reshape(-1, 1))
         centers = kmeans.cluster_centers_.flatten()
         
-        # Create proper mapping: lower Z center gets pass 1, higher Z center gets pass 2
+        # Map clusters to pass numbers in order of increasing Z
         sorted_center_indices = np.argsort(centers)
-        label_to_pass = {}
-        for i, center_idx in enumerate(sorted_center_indices):
-            # Find which cluster label corresponds to this center
-            cluster_label = center_idx
-            label_to_pass[cluster_label] = i + 1
+        label_to_pass = {label: i+1 for i, label in enumerate(sorted_center_indices)}
         
-        # Apply pass numbers to Mode == 2 data
         pass_values = [label_to_pass[label] for label in labels]
         dfcopy.loc[layer_mode_mask, columnName] = pass_values
-
-   
+    
     return dfcopy
