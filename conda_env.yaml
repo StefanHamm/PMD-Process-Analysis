@@ -21,3 +21,4 @@ dependencies:
   - plotly
   - kaleido
   - tqdm
+  - pygam

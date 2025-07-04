@@ -26,7 +26,11 @@ conda env create -f conda_env.yaml
 - [x] Preprocess Mode 4 and 5 by cutoff ends and remove datapoints if they are already recorded by previous layers
 - [x] Make syncing proces faster by using multiple processing
 - [x] Add a pass indicator to the passes.
-- [ ] combine the collected data (individual csv) of Dataset 2 into one dataframe
-- [ ] Fix the pass indicator and layer height calculation for one dataset where there is only one layer pass
+- [ ] trial 4 missing measurement after last layer
+- [x] combine the collected data (individual csv) of Dataset 2 into one dataframe
+- [x] Fix the pass indicator and layer height calculation for one dataset where there is only one layer pass
+- [ ] Think about scaling globally or interlayer wise for some features
 - [ ] Create a model to predict layer height via input parameters (layer,voltage,Current)
 - [ ] Evaluate model performance
+
+### Dataset 3

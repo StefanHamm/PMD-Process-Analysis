@@ -388,7 +388,7 @@ def plot2D_crossection(df, mode,colxaxis = "X",colyaxis = "Z-Height",coloring = 
 
 
 
-def process_layer(layer, df_copy, axisToScale, knn, passesPerMeasurement):
+def process_layer(layer, df_copy, axisToScale, knn):
     """Process a single layer in a separate process"""
     
     # Get current welding layer (Mode 2)
@@ -441,7 +441,7 @@ def process_layer(layer, df_copy, axisToScale, knn, passesPerMeasurement):
             next_height = np.nan
             next_X_mean = np.nan
             next_Y_mean = np.nan
-
+        passesPerMeasurement = df_copy.loc[df_copy['Layer'] == layer, 'Pass'].max()
         # Calculate deposited height
         if pd.notnull(prev_height) and pd.notnull(next_height):
             dep_height = (next_height - prev_height) / passesPerMeasurement
@@ -470,7 +470,7 @@ import multiprocessing as mp
 from functools import partial
 
 def sync_measurement_with_weld_mp(df: pd.DataFrame, meanscaleAxis=True, axisToScale="X", 
-                                  knn=3, passesPerMeasurement=1, n_processes=None):
+                                  knn=3, n_processes=None):
     """
     Multiprocessed version of sync_measurement_with_weld function.
     
@@ -534,8 +534,7 @@ def sync_measurement_with_weld_mp(df: pd.DataFrame, meanscaleAxis=True, axisToSc
         process_layer,
         df_copy=df_copy,
         axisToScale=axisToScale,
-        knn=knn,
-        passesPerMeasurement=passesPerMeasurement
+        knn=knn
     )
     
     # Process layers in parallel
@@ -557,7 +556,8 @@ def sync_measurement_with_weld_mp(df: pd.DataFrame, meanscaleAxis=True, axisToSc
                     result['next_X_mean'], result['next_Y_mean']
                 ]
     
-    return df_copy[df_copy["Mode"] == 2].copy()
+    # FIX: Only return the layers that were actually processed problem for one dataset where measurement data of the last layer was missing
+    return df_copy[(df_copy["Mode"] == 2) & (df_copy["Layer"].isin(layers_to_process))].dropna().copy()
 
 
 from tqdm import tqdm
@@ -703,6 +703,7 @@ def estimate_passes(z_values, max_passes=5, min_peak_prominence=0.05, plot=False
 def add_pass_indicator(df: pd.DataFrame, columnName="Pass", max_passes=5):
     dfcopy = df.copy()
     dfcopy[columnName] = 1  # Default pass
+    dfcopy["NumberOfPasses"] = np.nan  # Initialize column
     
     for layer in dfcopy['Layer'].unique():
         mask = dfcopy['Layer'] == layer
@@ -726,5 +727,40 @@ def add_pass_indicator(df: pd.DataFrame, columnName="Pass", max_passes=5):
         
         pass_values = [label_to_pass[label] for label in labels]
         dfcopy.loc[layer_mode_mask, columnName] = pass_values
+        dfcopy.loc[layer_mode_mask, "NumberOfPasses"] = n_passes 
     
     return dfcopy
+
+
+def add_identification_column(df: pd.DataFrame, columname="ID", number: int = None) -> pd.DataFrame:
+    """Adds a column to the dataframe with a single number in it.
+    
+    Args:
+        df (pd.DataFrame): Weld dataframe
+        columname (str, optional): How the column should be named. Defaults to "ID".
+        number (int, optional): The value of the column for each row. Defaults to None.
+        
+    Returns:
+        pd.DataFrame: Weld data with ID
+    """
+    # Create a copy to avoid modifying the original dataframe
+    df_copy = df.copy()
+    
+    # Add the identification column with the specified value
+    df_copy[columname] = number
+    
+    return df_copy
+
+
+class BaselineModel():
+    """This class will be the baseline model and will pedictt the mean of the output label.
+    """
+    def __init__(self):
+        self.prediction = 0.
+        pass
+    
+    def train(self,series):
+        self.prediction = series.mean()
+
+    def predict(self,df:pd.DataFrame):
+        return  np.full(len(df), self.prediction)
